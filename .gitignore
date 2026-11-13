@@ -1,1 +1,2 @@
+# GIT IGNORE: keeps the large build output folder (target/) out of version control.
 target/

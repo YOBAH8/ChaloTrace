@@ -1,3 +1,6 @@
+# WORKSPACE ROOT: tells Cargo (Rust's build tool) that this project is made of two crates
+# (ledger-core and ledger-server) and sets the version, license and release-build options for both.
+
 [workspace]
 resolver = "2"
 members = ["crates/ledger-core", "crates/ledger-server"]

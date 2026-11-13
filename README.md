@@ -35,8 +35,24 @@ replays every signature from scratch on each call rather than trusting stored st
 ```bash
 cargo test --workspace
 cargo run -p ledger-server          # listens on 0.0.0.0:8080 (LISTEN_ADDR to change)
-curl localhost:8080/api/v1/verify/<32-hex-product-id>
+# in a second terminal, simulate a honey shipment and get a verify link:
+cargo run -p ledger-server --example seed_demo
 ```
+
+Full beginner install guide: see `../INSTALL.md`.
+
+## File map
+
+| File | Purpose |
+|---|---|
+| `proto/ledger.proto` | Wire format definition (source of truth for other-language SDKs) |
+| `crates/ledger-core/src/proto.rs` | Rust types matching the .proto file |
+| `crates/ledger-core/src/chain.rs` | Signing, hashing and custody/chain validation rules |
+| `crates/ledger-core/src/lib.rs` | Library entry point, re-exports, and the engine's unit tests |
+| `crates/ledger-server/src/lib.rs` | HTTP endpoints (ingest and verify) and server tests |
+| `crates/ledger-server/src/main.rs` | Starts the server |
+| `crates/ledger-server/examples/seed_demo.rs` | Demo shipment script |
+| `migrations/0001_init.sql` | Future PostgreSQL schema |
 
 ## Payload size (measured)
 

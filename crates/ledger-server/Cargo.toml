@@ -1,3 +1,6 @@
+# CRATE MANIFEST for ledger-server: the web server. Lists the HTTP framework (axum) and async runtime (tokio)
+# it needs, plus test-only helpers.
+
 [package]
 name = "ledger-server"
 description = "HTTP ingest + public verification API for the ChaloTrace ledger."

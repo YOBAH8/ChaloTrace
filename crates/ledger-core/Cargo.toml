@@ -1,3 +1,6 @@
+# CRATE MANIFEST for ledger-core: the engine library. Lists the crypto/encoding libraries it needs
+# (protobuf, Ed25519 signatures, BLAKE3 hashing).
+
 [package]
 name = "ledger-core"
 description = "Low-bandwidth, signed, hash-chained supply chain ledger: wire format, signing and chain validation."
