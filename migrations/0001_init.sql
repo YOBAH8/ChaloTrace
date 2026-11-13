@@ -1,4 +1,5 @@
--- Persistence schema for the next milestone (server currently uses an in-memory store).
+-- DATABASE SCHEMA: tables for products and their signed events. Applied automatically by the server
+-- at startup (see crates/ledger-server/src/store.rs); you do not run this file by hand.
 -- Plain PostgreSQL; the TimescaleDB hypertable at the bottom is optional.
 
 CREATE TABLE products (

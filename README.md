@@ -13,9 +13,11 @@ Working today (all tests passing):
 - Signing, hash chaining and custody rules (`crates/ledger-core`)
 - HTTP server: batch ingest + public verify endpoint (`crates/ledger-server`)
 - Idempotent sync: resending a batch after a lost ack is safe
+- PostgreSQL storage (`store.rs`): events saved before memory is updated; all chains are
+  re-verified from signatures at startup, and the server refuses to start if any row was altered
+- Database blocks UPDATE/DELETE on events (append-only trigger)
 
-Not built yet: Postgres persistence (schema ready in `migrations/`), device key
-registration/revocation, JS and Dart SDKs, field app, dashboard.
+Not built yet: device key registration/revocation, JS and Dart SDKs, field app, dashboard.
 
 ## How it works
 
@@ -34,6 +36,7 @@ replays every signature from scratch on each call rather than trusting stored st
 
 ```bash
 cargo test --workspace
+export DATABASE_URL=postgres://chalotrace:chalotrace@localhost/chalotrace   # omit to run in memory only
 cargo run -p ledger-server          # listens on 0.0.0.0:8080 (LISTEN_ADDR to change)
 # in a second terminal, simulate a honey shipment and get a verify link:
 cargo run -p ledger-server --example seed_demo
@@ -50,9 +53,10 @@ Full beginner install guide: see `../INSTALL.md`.
 | `crates/ledger-core/src/chain.rs` | Signing, hashing and custody/chain validation rules |
 | `crates/ledger-core/src/lib.rs` | Library entry point, re-exports, and the engine's unit tests |
 | `crates/ledger-server/src/lib.rs` | HTTP endpoints (ingest and verify) and server tests |
-| `crates/ledger-server/src/main.rs` | Starts the server |
+| `crates/ledger-server/src/store.rs` | Saves/loads chains in PostgreSQL; verifies them at startup |
+| `crates/ledger-server/src/main.rs` | Starts the server (reads `DATABASE_URL`) |
 | `crates/ledger-server/examples/seed_demo.rs` | Demo shipment script |
-| `migrations/0001_init.sql` | Future PostgreSQL schema |
+| `migrations/0001_init.sql` | PostgreSQL tables, run automatically at startup |
 
 ## Payload size (measured)
 
@@ -67,7 +71,10 @@ short key id instead. That is a planned optimization, not something v1 does.
 - Timestamps come from the device clock and are informational only.
 - The ledger proves *who signed what, in what order*, not that the honey was really
   organic or the GPS reading honest. Origin trust still needs human/audit controls.
-- Storage is in-memory; restarting the server loses data until Postgres is wired in.
+- Run ONE server process per database: the in-memory copy is the live view, so a second
+  process writing to the same database would not see the first one's new events.
+- The database tests (persistence, restart, tamper detection) were run by hand against
+  PostgreSQL 16; the automated test suite uses the in-memory store.
 
 ## License
 

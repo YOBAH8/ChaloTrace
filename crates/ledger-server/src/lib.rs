@@ -1,4 +1,4 @@
-//! HTTP surface:
+//! HTTP surface (storage is in store.rs):
 //!   POST /api/v1/events           body: protobuf SyncBatch -> protobuf SyncAck
 //!   GET  /api/v1/verify/:product  public JSON timeline, re-verified from signatures on every call
 //!   GET  /health
@@ -11,24 +11,37 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use ledger_core::{open_event, AppendOutcome, Chain, EventKind, Message, Rejection, SignedEvent, SyncAck, SyncBatch};
+use ledger_core::{open_event, AppendOutcome, Chain, EventKind, Message, Rejection, SyncAck, SyncBatch};
 use serde::Serialize;
-use std::{collections::HashMap, sync::{Arc, Mutex}};
+use std::sync::Arc;
+use tokio::sync::Mutex;
+
+pub mod store;
+pub use store::Store;
 
 pub const MAX_BATCH_EVENTS: usize = 500;
 
-/// In-memory store. Postgres/TimescaleDB persistence is the next milestone (see migrations/).
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct AppState {
-    chains: Arc<Mutex<HashMap<[u8; 16], Chain>>>,
+    store: Arc<Mutex<Store>>,
 }
 
+/// Server with no database (data is lost on restart). Used by tests.
 pub fn app() -> Router {
+    app_with(Store::in_memory())
+}
+
+/// Server backed by the given store (in-memory or PostgreSQL).
+pub fn app_with(store: Store) -> Router {
     Router::new()
-        .route("/health", get(|| async { "ok" }))
+        .route("/health", get(health))
         .route("/api/v1/events", post(ingest))
         .route("/api/v1/verify/:product_id", get(verify))
-        .with_state(AppState::default())
+        .with_state(AppState { store: Arc::new(Mutex::new(store)) })
+}
+
+async fn health(State(st): State<AppState>) -> String {
+    format!("ok ({} products)", st.store.lock().await.product_count())
 }
 
 fn proto_response(ack: SyncAck) -> Response {
@@ -44,32 +57,15 @@ async fn ingest(State(st): State<AppState>, body: Bytes) -> Response {
         return (StatusCode::PAYLOAD_TOO_LARGE, "batch too large").into_response();
     }
     let mut ack = SyncAck::default();
-    let mut chains = st.chains.lock().unwrap();
+    let mut store = st.store.lock().await;
     for (i, se) in batch.events.into_iter().enumerate() {
-        match apply(&mut chains, se) {
+        match store.apply(se).await {
             Ok(AppendOutcome::Appended) => ack.accepted += 1,
             Ok(AppendOutcome::Duplicate) => ack.duplicates += 1,
             Err(reason) => ack.rejected.push(Rejection { index: i as u32, reason }),
         }
     }
     proto_response(ack)
-}
-
-fn apply(chains: &mut HashMap<[u8; 16], Chain>, se: SignedEvent) -> Result<AppendOutcome, String> {
-    let ev = open_event(&se).map_err(|e| e.to_string())?;
-    let pid: [u8; 16] = ev.product_id.as_slice().try_into().map_err(|_| "bad product_id".to_string())?;
-    if ev.kind == EventKind::Genesis as i32 {
-        if let Some(existing) = chains.get_mut(&pid) {
-            // A repeated identical genesis is a retransmit; anything else is a conflict.
-            return existing.append(se).map_err(|e| e.to_string());
-        }
-        chains.insert(pid, Chain::from_genesis(se).map_err(|e| e.to_string())?);
-        return Ok(AppendOutcome::Appended);
-    }
-    match chains.get_mut(&pid) {
-        Some(c) => c.append(se).map_err(|e| e.to_string()),
-        None => Err("unknown product (genesis not received yet)".into()),
-    }
 }
 
 #[derive(Serialize)]
@@ -99,7 +95,7 @@ async fn verify(State(st): State<AppState>, Path(product_id): Path<String>) -> R
         Some(p) => p,
         None => return (StatusCode::BAD_REQUEST, "product_id must be 32 hex characters").into_response(),
     };
-    let stored = match st.chains.lock().unwrap().get(&pid) {
+    let stored = match st.store.lock().await.get(&pid) {
         Some(c) => c.events().to_vec(),
         None => return (StatusCode::NOT_FOUND, "unknown product").into_response(),
     };
@@ -141,7 +137,7 @@ mod tests {
     use super::*;
     use axum::{body::Body, http::Request};
     use http_body_util::BodyExt;
-    use ledger_core::{sign_event, Event, SigningKey};
+    use ledger_core::{sign_event, Event, SignedEvent, SigningKey};
     use tower::ServiceExt;
 
     async fn post_batch(app: &Router, events: Vec<SignedEvent>) -> SyncAck {

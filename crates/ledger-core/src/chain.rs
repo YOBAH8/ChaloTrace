@@ -145,15 +145,22 @@ impl Chain {
         Ok(chain)
     }
 
-    pub fn append(&mut self, se: SignedEvent) -> Result<AppendOutcome, ChainError> {
-        let ev = open_event(&se)?;
+    /// Validate an event against the current chain WITHOUT changing anything.
+    /// `Appended` here means "would be accepted as the next event". Lets a server persist to a
+    /// database first and only then call `append`.
+    pub fn check(&self, se: &SignedEvent) -> Result<AppendOutcome, ChainError> {
+        self.check_inner(se).map(|(outcome, _)| outcome)
+    }
+
+    fn check_inner(&self, se: &SignedEvent) -> Result<(AppendOutcome, Event), ChainError> {
+        let ev = open_event(se)?;
         if ev.product_id != self.product_id {
             return Err(ChainError::WrongProduct);
         }
         let seq = ev.seq as usize;
         if seq < self.events.len() {
             // Retransmission after a dropped ack is normal on 2G: accept identical, reject conflicting.
-            return if self.hashes[seq] == event_hash(&se) { Ok(AppendOutcome::Duplicate) } else { Err(ChainError::Conflict) };
+            return if self.hashes[seq] == event_hash(se) { Ok((AppendOutcome::Duplicate, ev)) } else { Err(ChainError::Conflict) };
         }
         if ev.kind == EventKind::Genesis as i32 {
             return Err(ChainError::UnexpectedGenesis);
@@ -167,12 +174,19 @@ impl Chain {
         if ev.actor_key.as_slice() != self.custodian.as_slice() {
             return Err(ChainError::NotCustodian);
         }
-        if ev.kind == EventKind::Handoff as i32 {
-            self.custodian = ev.next_actor.as_slice().try_into().unwrap();
+        Ok((AppendOutcome::Appended, ev))
+    }
+
+    pub fn append(&mut self, se: SignedEvent) -> Result<AppendOutcome, ChainError> {
+        let (outcome, ev) = self.check_inner(&se)?;
+        if outcome == AppendOutcome::Appended {
+            if ev.kind == EventKind::Handoff as i32 {
+                self.custodian = ev.next_actor.as_slice().try_into().unwrap();
+            }
+            self.hashes.push(event_hash(&se));
+            self.events.push(se);
         }
-        self.hashes.push(event_hash(&se));
-        self.events.push(se);
-        Ok(AppendOutcome::Appended)
+        Ok(outcome)
     }
 
     pub fn product_id(&self) -> [u8; 16] { self.product_id }
