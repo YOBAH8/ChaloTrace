@@ -16,8 +16,10 @@ Working today (all tests passing):
 - PostgreSQL storage (`store.rs`): events saved before memory is updated; all chains are
   re-verified from signatures at startup, and the server refuses to start if any row was altered
 - Database blocks UPDATE/DELETE on events (append-only trigger)
+- Admin-enrolled device keys; only enrolled, non-revoked keys may create GENESIS events
+- Authorized admin endpoints for creating organizations, enrolling keys, and revoking keys
 
-Not built yet: device key registration/revocation, JS and Dart SDKs, field app, dashboard.
+Not built yet: JS and Dart SDKs, field app, dashboard.
 
 ## How it works
 
@@ -37,12 +39,25 @@ replays every signature from scratch on each call rather than trusting stored st
 ```bash
 cargo test --workspace
 export DATABASE_URL=postgres://chalotrace:chalotrace@localhost/chalotrace   # omit to run in memory only
+export ADMIN_TOKEN="replace-with-a-long-random-admin-token"
 cargo run -p ledger-server          # listens on 0.0.0.0:8080 (LISTEN_ADDR to change)
 # in a second terminal, simulate a honey shipment and get a verify link:
 cargo run -p ledger-server --example seed_demo
 ```
 
-Full beginner install guide: see `../INSTALL.md`.
+Full beginner install guide: see `INSTALL.md`.
+
+### PostgreSQL integration tests
+
+The PostgreSQL-specific tests run when `TEST_DATABASE_URL` points to a disposable local
+database where the configured user can create and drop schemas. Each test uses its own
+schema and removes it afterward, so the tests do not alter the database's normal tables.
+Without `TEST_DATABASE_URL`, these tests report a skip.
+
+```bash
+export TEST_DATABASE_URL='postgres://USER:PASSWORD@localhost/DATABASE'
+cargo test -p ledger-server --test postgres
+```
 
 ## File map
 
@@ -54,9 +69,11 @@ Full beginner install guide: see `../INSTALL.md`.
 | `crates/ledger-core/src/lib.rs` | Library entry point, re-exports, and the engine's unit tests |
 | `crates/ledger-server/src/lib.rs` | HTTP endpoints (ingest and verify) and server tests |
 | `crates/ledger-server/src/store.rs` | Saves/loads chains in PostgreSQL; verifies them at startup |
+| `crates/ledger-server/tests/postgres.rs` | Isolated PostgreSQL integration tests (opt-in with `TEST_DATABASE_URL`) |
 | `crates/ledger-server/src/main.rs` | Starts the server (reads `DATABASE_URL`) |
 | `crates/ledger-server/examples/seed_demo.rs` | Demo shipment script |
 | `migrations/0001_init.sql` | PostgreSQL tables, run automatically at startup |
+| `migrations/0002_organizations_devices.sql` | Organizations and enrolled/revoked device keys |
 
 ## Payload size (measured)
 
@@ -73,8 +90,16 @@ short key id instead. That is a planned optimization, not something v1 does.
   organic or the GPS reading honest. Origin trust still needs human/audit controls.
 - Run ONE server process per database: the in-memory copy is the live view, so a second
   process writing to the same database would not see the first one's new events.
-- The database tests (persistence, restart, tamper detection) were run by hand against
-  PostgreSQL 16; the automated test suite uses the in-memory store.
+- A HANDOFF to an unenrolled key is allowed, and that custodian may submit later events unless
+  their key is explicitly revoked. Verification JSON flags unenrolled actors and handoff targets.
+- `ADMIN_TOKEN` must be set to enable admin APIs. Requests use `Authorization: Bearer <token>`;
+  without the setting all admin requests are rejected. Admin routes are:
+  `POST /api/v1/admin/organizations` (`{"name":"..."}`),
+  `POST /api/v1/admin/organizations/{id}/devices` (`{"public_key":"64 hex characters"}`),
+  and `DELETE /api/v1/admin/devices/{public_key}`.
+- PostgreSQL persistence, retransmission, tamper-detection, and append-only behavior are
+  covered by opt-in automated tests when `TEST_DATABASE_URL` is set; the default suite uses
+  the in-memory store for these cases.
 
 ## License
 

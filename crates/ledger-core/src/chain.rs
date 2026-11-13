@@ -61,16 +61,30 @@ pub fn sign_event(key: &SigningKey, mut ev: Event) -> SignedEvent {
     ev.actor_key = key.verifying_key().to_bytes().to_vec();
     let bytes = ev.encode_to_vec();
     let sig = key.sign(&bytes);
-    SignedEvent { event: bytes, signature: sig.to_bytes().to_vec() }
+    SignedEvent {
+        event: bytes,
+        signature: sig.to_bytes().to_vec(),
+    }
 }
 
 /// Decode an event and verify its signature against its own `actor_key`.
 pub fn open_event(se: &SignedEvent) -> Result<Event, ChainError> {
-    let ev = Event::decode(se.event.as_slice()).map_err(|_| ChainError::Malformed("undecodable event"))?;
-    let key_bytes: [u8; 32] = ev.actor_key.as_slice().try_into().map_err(|_| ChainError::Malformed("actor_key must be 32 bytes"))?;
-    let sig_bytes: [u8; 64] = se.signature.as_slice().try_into().map_err(|_| ChainError::Malformed("signature must be 64 bytes"))?;
-    let vk = VerifyingKey::from_bytes(&key_bytes).map_err(|_| ChainError::Malformed("invalid public key"))?;
-    vk.verify_strict(&se.event, &Signature::from_bytes(&sig_bytes)).map_err(|_| ChainError::BadSignature)?;
+    let ev = Event::decode(se.event.as_slice())
+        .map_err(|_| ChainError::Malformed("undecodable event"))?;
+    let key_bytes: [u8; 32] = ev
+        .actor_key
+        .as_slice()
+        .try_into()
+        .map_err(|_| ChainError::Malformed("actor_key must be 32 bytes"))?;
+    let sig_bytes: [u8; 64] = se
+        .signature
+        .as_slice()
+        .try_into()
+        .map_err(|_| ChainError::Malformed("signature must be 64 bytes"))?;
+    let vk = VerifyingKey::from_bytes(&key_bytes)
+        .map_err(|_| ChainError::Malformed("invalid public key"))?;
+    vk.verify_strict(&se.event, &Signature::from_bytes(&sig_bytes))
+        .map_err(|_| ChainError::BadSignature)?;
     check_shape(&ev)?;
     Ok(ev)
 }
@@ -101,7 +115,9 @@ fn check_shape(ev: &Event) -> Result<(), ChainError> {
     }
     if kind == EventKind::Genesis {
         if ev.seq != 0 || !ev.prev_hash.is_empty() {
-            return Err(ChainError::Malformed("GENESIS must have seq 0 and empty prev_hash"));
+            return Err(ChainError::Malformed(
+                "GENESIS must have seq 0 and empty prev_hash",
+            ));
         }
     } else if ev.prev_hash.len() != 32 {
         return Err(ChainError::Malformed("prev_hash must be 32 bytes"));
@@ -160,13 +176,20 @@ impl Chain {
         let seq = ev.seq as usize;
         if seq < self.events.len() {
             // Retransmission after a dropped ack is normal on 2G: accept identical, reject conflicting.
-            return if self.hashes[seq] == event_hash(se) { Ok((AppendOutcome::Duplicate, ev)) } else { Err(ChainError::Conflict) };
+            return if self.hashes[seq] == event_hash(se) {
+                Ok((AppendOutcome::Duplicate, ev))
+            } else {
+                Err(ChainError::Conflict)
+            };
         }
         if ev.kind == EventKind::Genesis as i32 {
             return Err(ChainError::UnexpectedGenesis);
         }
         if seq != self.events.len() {
-            return Err(ChainError::SeqMismatch { expected: self.events.len() as u32, got: ev.seq });
+            return Err(ChainError::SeqMismatch {
+                expected: self.events.len() as u32,
+                got: ev.seq,
+            });
         }
         if ev.prev_hash.as_slice() != self.head_hash().as_slice() {
             return Err(ChainError::PrevHashMismatch);
@@ -189,11 +212,25 @@ impl Chain {
         Ok(outcome)
     }
 
-    pub fn product_id(&self) -> [u8; 16] { self.product_id }
-    pub fn len(&self) -> usize { self.events.len() }
-    pub fn is_empty(&self) -> bool { self.events.is_empty() }
-    pub fn custodian(&self) -> [u8; 32] { self.custodian }
-    pub fn events(&self) -> &[SignedEvent] { &self.events }
-    pub fn head_hash(&self) -> Hash { *self.hashes.last().expect("chain is never empty") }
-    pub fn hash_at(&self, i: usize) -> Hash { self.hashes[i] }
+    pub fn product_id(&self) -> [u8; 16] {
+        self.product_id
+    }
+    pub fn len(&self) -> usize {
+        self.events.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.events.is_empty()
+    }
+    pub fn custodian(&self) -> [u8; 32] {
+        self.custodian
+    }
+    pub fn events(&self) -> &[SignedEvent] {
+        &self.events
+    }
+    pub fn head_hash(&self) -> Hash {
+        *self.hashes.last().expect("chain is never empty")
+    }
+    pub fn hash_at(&self, i: usize) -> Hash {
+        self.hashes[i]
+    }
 }
