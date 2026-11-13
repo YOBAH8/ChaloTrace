@@ -1,0 +1,47 @@
+// ChaloTrace wire format (v1). Source of truth for SDKs in other languages.
+// The Rust types in crates/ledger-core/src/proto.rs mirror this file exactly.
+syntax = "proto3";
+package chalotrace.v1;
+
+enum EventKind {
+  EVENT_KIND_UNSPECIFIED = 0;
+  GENESIS = 1;     // batch created at origin; seq 0; signer becomes first custodian
+  CHECKPOINT = 2;  // custodian records a location/time (warehouse, border, port)
+  HANDOFF = 3;     // custodian transfers custody to next_actor
+}
+
+// The signed payload. Serialized bytes of this message are what get signed.
+message Event {
+  bytes  product_id = 1;  // 16 bytes
+  uint32 seq        = 2;  // 0 for genesis, then +1 per event
+  bytes  prev_hash  = 3;  // 32 bytes BLAKE3 of previous SignedEvent; empty for genesis
+  EventKind kind    = 4;
+  bytes  actor_key  = 5;  // 32 bytes Ed25519 public key of the signer
+  sint32 lat_e6     = 6;  // degrees * 1e6 (about 0.11 m resolution)
+  sint32 lon_e6     = 7;
+  uint64 timestamp  = 8;  // unix seconds, device clock (informational, not trusted)
+  string note       = 9;  // max 64 bytes
+  bytes  next_actor = 10; // 32 bytes; only for HANDOFF
+}
+
+// Signature is over the exact bytes in `event`, so no canonicalization is needed.
+message SignedEvent {
+  bytes event     = 1;  // encoded Event
+  bytes signature = 2;  // 64 bytes Ed25519
+}
+
+// Devices queue events offline and send them in one request when a signal appears.
+message SyncBatch {
+  repeated SignedEvent events = 1;
+}
+
+message Rejection {
+  uint32 index  = 1;  // position in the batch
+  string reason = 2;
+}
+
+message SyncAck {
+  uint32 accepted = 1;
+  uint32 duplicates = 2;  // already stored; safe to drop from the device queue
+  repeated Rejection rejected = 3;
+}

@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = ["crates/ledger-core", "crates/ledger-server"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["John Yobah"]
+repository = "https://github.com/YOBAH8/rugged-ledger-core"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
