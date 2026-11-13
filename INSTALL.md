@@ -168,7 +168,7 @@ Each time you run the demo you get a new batch with a new link.
 1. On github.com, create a new **empty** repository named `rugged-ledger-core` (no README, no license).
 2. In the `rugged-ledger-core` folder terminal:
 ```
-git remote add origin https://github.com/YOBAH8/rugged-ledger-core.git
+git remote add origin https://github.com/YOBAH8/Chalotrace.git
 git branch -M main
 git push -u origin main
 ```
